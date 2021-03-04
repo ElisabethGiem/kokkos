@@ -58,5 +58,4 @@ TEST(defaultdevicetype, reduce_instantiation_b1) {
 }
 
 }  // namespace Test
-
 #endif

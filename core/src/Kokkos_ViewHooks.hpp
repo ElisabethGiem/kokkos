@@ -47,7 +47,7 @@
 #include <Kokkos_Macros.hpp>
 #include <Kokkos_HostSpace.hpp>
 #include <Kokkos_Layout.hpp>
-
+#include <Kokkos_ScratchSpace.hpp>
 #include <functional>
 #include <memory>
 #include <type_traits>
@@ -66,7 +66,7 @@ View<typename ViewTraits<DataType, Properties...>::non_const_data_type,
          std::is_same<LayoutLeft, typename ViewTraits<DataType, Properties...>::
                                       array_layout>::value,
          LayoutLeft, LayoutRight>::type,
-     HostSpace, MemoryTraits<Unmanaged> >
+     HostSpace, MemoryTraits<Unmanaged>>
 make_unmanaged_view_like(View<DataType, Properties...> view,
                          unsigned char *buff) {
   using traits_type   = ViewTraits<DataType, Properties...>;
@@ -79,7 +79,7 @@ make_unmanaged_view_like(View<DataType, Properties...> view,
       LayoutLeft, LayoutRight>::type;
 
   using new_view_type =
-      View<new_data_type, layout_type, HostSpace, MemoryTraits<Unmanaged> >;
+      View<new_data_type, layout_type, HostSpace, MemoryTraits<Unmanaged>>;
 
   return new_view_type(
       reinterpret_cast<typename new_view_type::pointer_type>(buff),
@@ -107,7 +107,7 @@ struct ViewMetadata {
 class ConstViewHolderBase {
  public:
   virtual ~ConstViewHolderBase() = default;
-
+  ConstViewHolderBase(ViewMetadata metadata) : m_metadata(metadata) {}
   size_t span() const { return m_metadata.span; }
   bool span_is_contiguous() const { return m_metadata.span_is_contiguous; }
   // const void *data() const ;
@@ -125,6 +125,7 @@ class ConstViewHolderBase {
 
 class ViewHolderBase : public ConstViewHolderBase {
  public:
+  ViewHolderBase(ViewMetadata metadata) : ConstViewHolderBase(metadata) {}
   virtual ~ViewHolderBase() = default;
 
   // virtual void *data() = 0;
@@ -132,15 +133,26 @@ class ViewHolderBase : public ConstViewHolderBase {
   virtual void deep_copy_from_buffer(unsigned char *buff) = 0;
 };
 
+template <typename T>
+void *just_c_things(T *in) {
+  return reinterpret_cast<void *>(in);
+}
+
+template <typename T>
+void *just_c_things(const T *in) {
+  return reinterpret_cast<void *>(const_cast<T *>(in));
+}
+
 template <typename View, typename Enable = void>
 class ViewHolder : public ViewHolderBase {
  public:
   virtual ~ViewHolder() = default;
 
   explicit ViewHolder(const View &view)
-      : m_metadata(m_view.span(), m_view.span_is_contiguous(), m_view.data(),
-                   m_view.label(), sizeof(typename View::value_type),
-                   std::is_same<typename View::memory_space, HostSpace>::value),
+      : ViewHolderBase(ViewMetadata{
+            view.span(), view.span_is_contiguous(), just_c_things(view.data()),
+            view.label(), sizeof(typename View::value_type),
+            std::is_same<typename View::memory_space, HostSpace>::value}),
         m_view(view) {}
 
   void deep_copy_to_buffer(unsigned char *buff) override {
@@ -165,9 +177,10 @@ class ViewHolder<View, typename std::enable_if<std::is_const<
   virtual ~ViewHolder() = default;
 
   explicit ViewHolder(const View &view)
-      : m_metadata(m_view.span(), m_view.span_is_contiguous(), m_view.data(),
-                   m_view.label(), sizeof(typename View::value_type),
-                   std::is_same<typename View::memory_space, HostSpace>::value),
+      : ConstViewHolderBase(ViewMetadata{
+            view.span(), view.span_is_contiguous(), just_c_things(view.data()),
+            view.label(), sizeof(typename View::value_type),
+            std::is_same<typename View::memory_space, HostSpace>::value}),
         m_view(view) {}
 
   void deep_copy_to_buffer(unsigned char *buff) override {
@@ -206,7 +219,7 @@ struct ViewHooks {
     std::swap(s_callback, tmp_callback);
     std::swap(s_const_callback, tmp_const_callback);
 
-    auto holder = ViewHolder<View<DataType, Properties...> >(view);
+    auto holder = ViewHolder<View<DataType, Properties...>>(view);
 
     do_call(tmp_callback, tmp_const_callback, std::move(holder));
 
@@ -215,14 +228,14 @@ struct ViewHooks {
   }
 
  private:
-  static void do_call(callback_type _cb, const_callback_type _ccb,
+  static void do_call(callback_type _cb, const_callback_type /*_ccb*/,
                       ViewHolderBase &&view) {
     if (_cb) {
       _cb(view);
     }
   }
 
-  static void do_call(callback_type _cb, const_callback_type _ccb,
+  static void do_call(callback_type /*_cb*/, const_callback_type _ccb,
                       ConstViewHolderBase &&view) {
     if (_ccb) _ccb(view);
   }
@@ -235,18 +248,46 @@ namespace Impl {
 template <class ViewType, class Traits = typename ViewType::traits,
           class Enabled = void>
 struct ViewHooksCaller {
-  static void call(ViewType &view) {}
+  static void call(ViewType &) {}
+};
+
+template <class MemSpace>
+struct is_scratch_space {
+  constexpr static const bool value = false;
+};
+
+template <class ExecSpace>
+struct is_scratch_space<Kokkos::ScratchMemorySpace<ExecSpace>> {
+  constexpr static const bool value = true;
+};
+
+template <class Layout>
+struct is_simple_layout {
+  constexpr static const bool value = false;
+};
+
+template <>
+struct is_simple_layout<Kokkos::LayoutLeft> {
+  constexpr static const bool value = true;
+};
+
+template <>
+struct is_simple_layout<Kokkos::LayoutRight> {
+  constexpr static const bool value = true;
 };
 
 template <class ViewType, class Traits>
 struct ViewHooksCaller<
     ViewType, Traits,
-    typename std::enable_if<!std::is_same<typename Traits::memory_space,
-                                          AnonymousSpace>::value>::type> {
+    typename std::enable_if<
+        !std::is_same<typename Traits::memory_space, AnonymousSpace>::value &&
+        is_simple_layout<typename Traits::array_layout>::value &&
+        !is_scratch_space<typename Traits::memory_space>::value>::type> {
   static void call(ViewType &view) {
     if (ViewHooks::is_set()) ViewHooks::call(view);
   }
 };
+
 }  // namespace Impl
 
 }  // namespace Kokkos
