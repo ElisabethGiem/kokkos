@@ -218,7 +218,7 @@ class SharedAllocationRecord<void, void> {
   template <class MemSpace>
   inline static typename std::enable_if<
       !Kokkos::Impl::is_resilient_space<MemSpace, void>::value>::type
-  track_duplicate_record(SharedAllocationRecord* rec) {}
+  track_duplicate_record(SharedAllocationRecord*) {}
 
   template <class MemSpace>
   inline static typename std::enable_if<

@@ -2842,8 +2842,7 @@ struct ViewValueFunctor<
   ViewValueFunctor(const ViewValueFunctor&) = default;
   ViewValueFunctor& operator=(const ViewValueFunctor&) = default;
 
-  ViewValueFunctor(ExecSpace const& arg_space, ValueType* const arg_ptr,
-                   size_t const arg_n) {}
+  ViewValueFunctor(ExecSpace const&, ValueType* const, size_t const) {}
 
   void construct_shared_allocation() {}
 
@@ -2860,8 +2859,7 @@ struct ViewValueFunctor<
   ViewValueFunctor(const ViewValueFunctor&) = default;
   ViewValueFunctor& operator=(const ViewValueFunctor&) = default;
 
-  ViewValueFunctor(ExecSpace const& arg_space, ValueType* const arg_ptr,
-                   size_t const arg_n) {}
+  ViewValueFunctor(ExecSpace const&, ValueType* const, size_t const) {}
 
   void construct_shared_allocation() {}
 

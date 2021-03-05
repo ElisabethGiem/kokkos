@@ -23,7 +23,7 @@ struct MergeFunctor<
   MergeFunctor() {}
 
   KOKKOS_INLINE_FUNCTION
-  MergeFunctor(const MergeFunctor& mf) {}
+  MergeFunctor(const MergeFunctor&) {}
 
   KOKKOS_INLINE_FUNCTION
   bool compare(Type a, Type b) const { return (abs(a - b) < 0.00000001); }
@@ -38,7 +38,7 @@ struct MergeFunctor<
   MergeFunctor() {}
 
   KOKKOS_INLINE_FUNCTION
-  MergeFunctor(const MergeFunctor& mf) {}
+  MergeFunctor(const MergeFunctor&) {}
 
   KOKKOS_INLINE_FUNCTION
   bool compare(Type a, Type b) const { return (a == b); }
