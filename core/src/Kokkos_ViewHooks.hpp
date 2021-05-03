@@ -131,6 +131,9 @@ class ViewHolderBase : public ConstViewHolderBase {
   // virtual void *data() = 0;
   // virtual ViewHolderBase *clone() const = 0;
   virtual void deep_copy_from_buffer(unsigned char *buff) = 0;
+  // ***EDIT*** New function, beginning step attempting to create new shared
+  // allocation record for the duplicate
+  virtual void duplicate_allocation(ViewHolderBase const&) = 0;
 };
 
 template <typename T>
@@ -165,6 +168,15 @@ class ViewHolder : public ViewHolderBase {
     deep_copy(m_view, unmanaged);
   }
 
+  // ***EDIT*** Duplicate allocation
+  void duplicate_allocation(ViewHolderBase const& src_base) final{
+    auto const& src = static_cast<ViewHolder>(src_base);
+    ViewHooksAttorney::set_allocation_record(m_view,
+        ViewHooksAttorney::duplicate_allocation_record(src.m_view)
+    );
+    //***EDIT***Allocation here, copy in specialization (?)
+    //Combine in parallel/tracker
+  }
  private:
   View m_view;
 };
@@ -211,8 +223,11 @@ struct ViewHooks {
     return static_cast<bool>(s_callback) || static_cast<bool>(s_const_callback);
   }
 
+  // ***EDIT*** Modify call itself, to add source view as well as original dst
+  // Format dst, src
   template <class DataType, class... Properties>
-  static void call(View<DataType, Properties...> &view) {
+  static void call(View<DataType, Properties...> &view,
+                   View<DataType, Properties...> &src_view) {
     callback_type tmp_callback;
     const_callback_type tmp_const_callback;
 
@@ -220,24 +235,29 @@ struct ViewHooks {
     std::swap(s_const_callback, tmp_const_callback);
 
     auto holder = ViewHolder<View<DataType, Properties...>>(view);
+    // ***EDIT*** New holder for source
+    auto src_holder = ViewHolder<View<DataType, Properties...>>(src_view);
 
-    do_call(tmp_callback, tmp_const_callback, std::move(holder));
+    // ***EDIT*** Modify this to move source and destination. Format dst,src.
+    do_call(tmp_callback, tmp_const_callback, std::move(holder), std::move(src_holder));
 
     std::swap(s_callback, tmp_callback);
     std::swap(s_const_callback, tmp_const_callback);
   }
 
+  // ***EDIT*** Modify for dst-src
  private:
   static void do_call(callback_type _cb, const_callback_type /*_ccb*/,
-                      ViewHolderBase &&view) {
+                      ViewHolderBase &&view, ViewHolderBase &&src_view) {
     if (_cb) {
-      _cb(view);
+      _cb(view, src_view);
     }
   }
 
+  // ***EDIT*** Modify for dst-src
   static void do_call(callback_type /*_cb*/, const_callback_type _ccb,
-                      ConstViewHolderBase &&view) {
-    if (_ccb) _ccb(view);
+                      ConstViewHolderBase &&view, ConstViewHolderBase &&src_view) {
+    if (_ccb) _ccb(view, src_view);
   }
 
   static callback_type s_callback;
